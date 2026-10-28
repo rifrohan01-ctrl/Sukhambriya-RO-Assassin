@@ -1,0 +1,2 @@
+window.OBB_ART_MAP={};
+window.obbMakeIcon=function(item,cls){const w=document.createElement('span');w.className=cls||'obbImageIcon';const id=Number(item?.itemId);const src=item?.imageUrl||(Number.isInteger(id)&&id>0?'https://www.fire-ro.com/img/items/'+id+'.png':'');if(src){const im=document.createElement('img');im.src=src;im.alt=item?.name||'Item';im.loading='lazy';im.onerror=()=>{im.remove();w.textContent='🎁'};w.append(im)}else w.textContent='🎁';return w};
