@@ -8,6 +8,19 @@ const PORT = process.env.PORT || 3000;
 const PUBLIC = path.join(__dirname,'public');
 const MIME={'.html':'text/html; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.mp3':'audio/mpeg','.ogg':'audio/ogg','.svg':'image/svg+xml','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.webmanifest':'application/manifest+json'};
 const server=http.createServer((req,res)=>{
+if (req.url.split("?")[0] === "/api/public-config") {
+  res.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+
+  return res.end(JSON.stringify({
+    supabaseUrl: process.env.SUPABASE_URL || "",
+    supabasePublishableKey:
+      process.env.SUPABASE_PUBLISHABLE_KEY || ""
+  }));
+}
+
   const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
   const safe=pathname==='/'?'/index.html':pathname;
   const target=path.normalize(path.join(PUBLIC,safe));
