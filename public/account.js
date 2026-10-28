@@ -10,32 +10,19 @@
  try {const response=await fetch('/api/public-config',{cache:'no-store'});if(!response.ok)throw Error('ไม่พบการตั้งค่า Supabase บนเซิร์ฟเวอร์');config=await response.json();if(!config.supabaseUrl||!config.supabasePublishableKey)throw Error('ยังไม่ได้ตั้ง SUPABASE_URL และ SUPABASE_PUBLISHABLE_KEY บน Render');}
  catch(e){show('accountGateway',true);setGameAccess(false);message(e.message,true);return;}
  if(!window.supabase?.createClient){show('accountGateway',true);setGameAccess(false);message('ไม่สามารถโหลด Supabase SDK ได้ กรุณาตรวจอินเทอร์เน็ตแล้วโหลดหน้าเว็บใหม่',true);return;}
- // Validate the Supabase project URL before attempting Auth requests.
- let supabaseOrigin;
- try {
-   const u=new URL(String(config.supabaseUrl).trim());
-   if(u.protocol!=='https:'||!u.hostname.endsWith('.supabase.co')||u.username||u.password)throw Error('invalid');
-   supabaseOrigin=u.origin;
- }catch(_){show('accountGateway',true);setGameAccess(false);message('SUPABASE_URL ใน Render ไม่ถูกต้อง: ต้องคัดลอก Project URL จาก Supabase → Connect หรือ Settings → Data API (เช่น https://xxxxx.supabase.co)',true);return;}
- const sb=window.supabase.createClient(supabaseOrigin,config.supabasePublishableKey,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}});
- const explainAuthError=(e)=>{
-   const raw=String(e?.message||e||'');
-   if(/failed to fetch|networkerror|load failed|network request failed/i.test(raw))
-     return 'ติดต่อ Supabase ไม่ได้ (Failed to fetch) — ตรวจ SUPABASE_URL ใน Render ให้ตรงกับ Project URL ปัจจุบัน, ตรวจว่า Supabase Project เป็น Healthy และทดสอบเปิด '+supabaseOrigin+'/auth/v1/health ในเบราว์เซอร์; เปิด F12 → Network เพื่อตรวจคำขอที่เป็นสีแดง';
-   return raw;
- };
-
+ const sb=window.supabase.createClient(config.supabaseUrl,config.supabasePublishableKey,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}});
  let activeUser=null, busy=false;
- const lock=()=>{activeUser=null;setGameAccess(false);show('accountGateway',true);show('accountAuth',true);show('accountCreator',false);show('accountStatus',false)};
+ const lock=()=>{window.SUKHAMBRIYA_ACCESS_TOKEN=null;activeUser=null;setGameAccess(false);show('accountGateway',true);show('accountAuth',true);show('accountCreator',false);show('accountStatus',false)};
  async function loadCharacter(user){
    activeUser=user;setGameAccess(false);show('accountGateway',true);show('accountAuth',false);show('accountCreator',false);message('กำลังโหลดตัวละคร...');
    const {data,error}=await sb.from('characters').select('user_id,character_name,job_id,hair_style,hair_color,appearance').eq('user_id',user.id).maybeSingle();
-   if(error){message('โหลดตัวละครไม่สำเร็จ: '+explainAuthError(error),true);return;}
+   if(error){message('โหลดตัวละครไม่สำเร็จ: '+error.message,true);return;}
    if(!data){show('accountCreator',true);message('สร้างตัวละคร Assassin Cross ครั้งแรกได้เลยค่ะ');return;}
    const n=String(data.character_name||'นักผจญภัย');
    $('accountPlayerName').textContent=n;
    const nick=$('nickname');if(nick)nick.value=n;
    window.SUKHAMBRIYA_CHARACTER=data;
+   const {data:sessionData}=await sb.auth.getSession();window.SUKHAMBRIYA_ACCESS_TOKEN=sessionData?.session?.access_token||null;
    show('accountGateway',false);show('accountStatus',true);setGameAccess(true);
    try{if(typeof window.SUKHAMBRIYA_ACCOUNT_READY==='function')window.SUKHAMBRIYA_ACCOUNT_READY(data)}catch(e){console.warn(e)}
  }
@@ -48,7 +35,7 @@
    if(error)throw error;
    if(mode==='signup'&&!data.session){message('สมัครสำเร็จ กรุณาเปิดอีเมลและกดลิงก์ยืนยันก่อนเข้าสู่ระบบ');return;}
    if(data.user)await loadCharacter(data.user);
- }catch(e){message(explainAuthError(e),true);console.error('Supabase Auth error',e)}finally{busy=false}}
+ }catch(e){message(e.message||'เกิดข้อผิดพลาด',true)}finally{busy=false}}
  $('accountSignIn').onclick=()=>auth('signin');$('accountSignUp').onclick=()=>auth('signup');
  $('accountSave').onclick=async()=>{
   if(busy||!activeUser)return;
@@ -60,7 +47,7 @@
    const {error}=await sb.from('characters').upsert(row,{onConflict:'user_id'});
    if(error)throw error;
    await loadCharacter(activeUser);
-  }catch(e){message('บันทึกไม่สำเร็จ: '+explainAuthError(e),true)}finally{busy=false}
+  }catch(e){message('บันทึกไม่สำเร็จ: '+e.message,true)}finally{busy=false}
  };
  $('accountLogout').onclick=async()=>{await sb.auth.signOut();location.reload()};
  sb.auth.onAuthStateChange((event,session)=>{
