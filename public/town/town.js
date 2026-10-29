@@ -10,6 +10,17 @@ const NPCS=[{id:1039,name:'Baphomet',role:'ช่างตีบวก',x:18,y:1
 const objs=[...NPCS.map(n=>({...n,type:'npc'})),...structures];
 const actor={x:22.8,y:31.8,dir:1,path:[],frame:0,bubble:'',bubbleUntil:0,targetNpc:null};
 const assets={};function img(key,path){const a=new Image();a.src=path;assets[key]=a}img('idle','assets/assassin/Assassin_Idle.gif');img('walk','assets/assassin/Assassin_Walk.gif');for(const n of NPCS)img('npc'+n.id,'assets/monster/'+n.id+'.gif');
+// Keep the player's last previewed costume visible when returning from the costume NPC.
+let costumeSignature='',costumeIdle=null,costumeWalk=null;
+function refreshTownCostume(){
+ let saved;try{saved=localStorage.getItem('sukhambriya:costumePreview')||'';}catch(_){return}
+ if(saved===costumeSignature)return;costumeSignature=saved;costumeIdle=null;costumeWalk=null;
+ try{const c=JSON.parse(saved),v=c.views||{};if(!Object.values(v).some(Number))return;
+ const base={job:'4013',head:String(c.head??8),headPalette:String(c.headPalette??1),bodyPalette:String(c.bodyPalette??-1),upper:String(v.upper||0),middle:String(v.middle||0),lower:String(v.lower||0),garment:String(v.garment||0)};
+ const make=action=>{const im=new Image(),q=new URLSearchParams({...base,action:String(action)});im.src='/api/costume-image?'+q;return im};
+ costumeIdle=make(0);costumeWalk=make(8);
+ }catch(e){console.warn('Town costume not available',e)}
+}
 const status=document.getElementById('status');const dialog=document.getElementById('dialog');
 function iso(x,y){return {x:(x-y)*TW/2,y:(x+y)*TH/2}}
 function worldToScreen(x,y){let p=iso(x,y);return {x:(p.x-camera.x)*zoom+W/2,y:(p.y-camera.y)*zoom+H/2}}
@@ -41,7 +52,7 @@ const decor=[...trees,...Array.from({length:24},(_,i)=>({type:'lamp',x:9+(i%6)*5
 function lamp(o){const p=iso(o.x,o.y);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,1,8,5);line([0,0],[0,-57],'#343e40',3);poly([[-7,-59],[0,-66],[7,-59],[5,-44],[-5,-44]],'#d7ae60','#2d3e45',1.5);poly([[-4,-58],[0,-61],[4,-58],[3,-48],[-3,-48]],'#f5d88a');ctx.restore()}
 function label(text,x,y,sub){ctx.textAlign='center';ctx.font='bold 11px Tahoma';ctx.lineWidth=3;ctx.strokeStyle='#19252beb';ctx.strokeText(text,x,y);ctx.fillStyle='#ffebbb';ctx.fillText(text,x,y);if(sub){ctx.font='10px Tahoma';ctx.strokeText(sub,x,y+15);ctx.fillStyle='#f1f4e4';ctx.fillText(sub,x,y+15)}}
 function npc(o){const p=iso(o.x+.5,o.y+.5);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,2,20,7);const a=assets['npc'+o.id];const breathe=1+Math.sin(tick*.002+o.id)*.012;if(a?.complete&&a.naturalWidth){let h=93*(o.id===1039?1.22:1),w=Math.min(110,h*a.naturalWidth/a.naturalHeight);ctx.drawImage(a,-w/2,-h-9,w,h*breathe)}else{ell(0,-35,15,34,o.color)}label(o.name,0,-116,o.role);ctx.restore()}
-function player(){const p=iso(actor.x+.5,actor.y+.5);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,2,17,6);const a=assets[actor.path.length?'walk':'idle'];if(a?.complete&&a.naturalWidth){ctx.drawImage(a,-57,-111,114,114)}else{poly([[-12,-10],[12,-10],[10,-68],[-10,-68]],'#5b6778')};label('นักผจญภัย',0,18);if(actor.bubble&&tick<actor.bubbleUntil){ctx.font='bold 12px Tahoma';let w=Math.min(245,Math.max(70,ctx.measureText(actor.bubble).width+20));ctx.fillStyle='#fffaeb';ctx.strokeStyle='#9c7b48';ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(-w/2,-144,w,31,7);ctx.fill();ctx.stroke();ctx.fillStyle='#28353c';ctx.textAlign='center';ctx.fillText(actor.bubble.slice(0,37),0,-124)}ctx.restore()}
+function player(){const p=iso(actor.x+.5,actor.y+.5);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,2,17,6);refreshTownCostume();const custom=actor.path.length?costumeWalk:costumeIdle;const a=(custom?.complete&&custom.naturalWidth)?custom:assets[actor.path.length?'walk':'idle'];if(a?.complete&&a.naturalWidth){ctx.drawImage(a,-57,-111,114,114)}else{poly([[-12,-10],[12,-10],[10,-68],[-10,-68]],'#5b6778')};label('นักผจญภัย',0,18);if(actor.bubble&&tick<actor.bubbleUntil){ctx.font='bold 12px Tahoma';let w=Math.min(245,Math.max(70,ctx.measureText(actor.bubble).width+20));ctx.fillStyle='#fffaeb';ctx.strokeStyle='#9c7b48';ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(-w/2,-144,w,31,7);ctx.fill();ctx.stroke();ctx.fillStyle='#28353c';ctx.textAlign='center';ctx.fillText(actor.bubble.slice(0,37),0,-124)}ctx.restore()}
 function draw(){tick=performance.now();const c=iso(actor.x,actor.y);camera.x+=(c.x-camera.x)*.08;camera.y+=(c.y-camera.y+55/zoom)*.08;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);ctx.fillStyle='#1b3131';ctx.fillRect(0,0,W,H);ctx.save();ctx.translate(W/2-camera.x*zoom,H/2-camera.y*zoom);ctx.scale(zoom,zoom);
 for(let sum=0;sum<(SIZE-1)*2+1;sum++)for(let y=Math.max(0,sum-SIZE+1);y<=Math.min(SIZE-1,sum);y++){let x=sum-y;tile(x,y)}
 // Decorative world structures sorted against the avatar for proper overlapping.

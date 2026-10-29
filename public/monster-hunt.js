@@ -29,7 +29,10 @@ function setHeroAnimation(action,force=false){
  const key=action==='Attack'?heroAttackDirection:(action==='Walk'?heroWalkDirection:action);
  if(!heroImg||(!force&&heroAnimation===action&&heroImg.dataset.spriteKey===key))return;
  heroAnimation=action;heroImg.dataset.spriteKey=key;
- heroImg.src=HERO_DIR+key+'.png'+(force?'?s='+Math.floor(performance.now()):'');
+ const costumeUrl=window.RO_COSTUME_SPRITE?.(key);
+ const fallback=HERO_DIR+key+'.png'+(force?'?s='+Math.floor(performance.now()):'');
+ heroImg.onerror=()=>{heroImg.onerror=null;heroImg.src=fallback;};
+ heroImg.src=costumeUrl||fallback;
  hero.classList.toggle('attacking',action==='Attack');
 }
 function updateFacing(dx,dy){
