@@ -1,0 +1,119 @@
+'use strict';
+// Sukhambriya Town V3: nine transparent building sprites, collision tiles, A* navigation and 4 animated NPCs.
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const SIZE=44,TW=90,TH=45; let W=0,H=0,dpr=1,zoom=1.02,camera={x:0,y:0},tick=0;
+const random=(x,y,seed=1)=>{let n=Math.sin(x*127.1+y*311.7+seed*72.21)*43758.5453;return n-Math.floor(n)};
+const tiles=Array.from({length:SIZE},(_,y)=>Array.from({length:SIZE},(_,x)=>{const dist=Math.hypot(x-22,y-22);const plaza=dist<12;const cross=Math.abs(x-22)<3||Math.abs(y-22)<3;const paving=plaza||cross||(x>=10&&x<=34&&y>=12&&y<=34);return {type:paving?(plaza?'plaza':'stone'):'grass',walk:true};}));
+const structures=[
+ {type:'building',sprite:'castle',x:8,y:9,w:6,h:6,name:'Royal Castle'},
+ {type:'building',sprite:'tavern',x:18,y:7,w:5,h:5,name:'The Copper Inn'},
+ {type:'building',sprite:'chapel',x:29,y:8,w:7,h:6,name:'Moonlight Chapel'},
+ {type:'building',sprite:'guild',x:7,y:19,w:6,h:6,name:'Adventurers Guild'},
+ {type:'building',sprite:'tailor',x:34,y:17,w:5,h:5,name:'Clothier'},
+ {type:'building',sprite:'costume',x:34,y:28,w:5,h:5,name:'Costume Boutique'},
+ {type:'building',sprite:'forge',x:9,y:32,w:6,h:6,name:'Blacksmith Forge'},
+ {type:'building',sprite:'alchemist',x:19,y:36,w:5,h:5,name:'Alchemy Shop'},
+ {type:'building',sprite:'knights',x:28,y:34,w:7,h:6,name:'Knights Headquarters'},
+ {type:'fountain',x:21,y:21,w:3,h:3,name:'Crown Fountain'}];
+const buildingSprites={};for(const name of ['castle','tavern','chapel','guild','tailor','costume','forge','alchemist','knights']){
+ const sprite=new Image();sprite.src='assets/town-buildings/'+name+'.png';buildingSprites[name]=sprite;
+}
+function paintedBuilding(o){
+ const p=iso(o.x+o.w/2,o.y+o.h/2),im=buildingSprites[o.sprite];
+ const width=Math.max(196,Math.min(440,o.w*TW*.78));
+ ctx.save();ctx.translate(p.x,p.y);solidShadow(0,5,width*.39,21);
+ if(im&&im.complete&&im.naturalWidth){const height=width*im.naturalHeight/im.naturalWidth;ctx.drawImage(im,-width/2,-height+13,width,height)}
+ else{ctx.fillStyle='#6c5360';ctx.fillRect(-width/2,-95,width,90)}
+ ctx.restore();
+} 
+
+for(const b of structures)for(let y=b.y;y<b.y+b.h;y++)for(let x=b.x;x<b.x+b.w;x++)if(tiles[y]?.[x])tiles[y][x].walk=false;
+const NPCS=[{id:1039,name:'Baphomet',role:'ช่างตีบวก',x:18,y:17,desc:'ข้าจะหลอมอาวุธให้แข็งแกร่งจนถึง +10 เจ้าพร้อมเสี่ยงโชคหรือยัง?',mode:'refine',color:'#d5a35d'}, {id:1150,name:'Moonlight Flower',role:'ช่างแต่งตัว',x:26,y:17,desc:'ยินดีต้อนรับ! เลือกหมวก แว่น หน้ากาก และผ้าคลุม แล้วบันทึกชุดของเจ้า',mode:'costume',color:'#f4a9c1'}, {id:1086,name:'Golden Thief Bug',role:'เปิดกล่อง OBB',x:17,y:28,desc:'มีกล่องสมบัติ Old Blue Box มากมายให้เจ้าลองเสี่ยงดวง!',mode:'obb',color:'#e7c16e'}, {id:1087,name:'Orc Hero',role:'ทางไปสนามล่า',x:27,y:28,desc:'เตรียมอาวุธให้พร้อมแล้วออกไปล่ามอนสเตอร์นอกกำแพงเมือง!',mode:'hunt',color:'#a9bd93'}];
+const objs=[...NPCS.map(n=>({...n,type:'npc'})),...structures];
+const actor={x:22.8,y:25.8,dir:1,path:[],frame:0,bubble:'',bubbleUntil:0,targetNpc:null,walkDx:0,walkDy:0,walkTime:0};
+const assets={};function img(key,path){const a=new Image();a.src=path;assets[key]=a}img('idle','assets/assassin/Assassin_Idle.gif');img('walk','assets/assassin/Assassin_Walk.gif');// NPC animation: decoded PNG frames instead of drawing an animated GIF into Canvas.
+const npcFrames={};
+const npcFrameManifest={"1039": {"files": ["assets/town-npc-frames/1039-00.png", "assets/town-npc-frames/1039-01.png", "assets/town-npc-frames/1039-02.png", "assets/town-npc-frames/1039-03.png", "assets/town-npc-frames/1039-04.png", "assets/town-npc-frames/1039-05.png", "assets/town-npc-frames/1039-06.png", "assets/town-npc-frames/1039-07.png"], "durations": [100, 100, 100, 100, 100, 100, 100, 100]}, "1150": {"files": ["assets/town-npc-frames/1150-00.png", "assets/town-npc-frames/1150-01.png", "assets/town-npc-frames/1150-02.png", "assets/town-npc-frames/1150-03.png", "assets/town-npc-frames/1150-04.png", "assets/town-npc-frames/1150-05.png"], "durations": [180, 180, 180, 180, 180, 180]}, "1086": {"files": ["assets/town-npc-frames/1086-00.png", "assets/town-npc-frames/1086-01.png", "assets/town-npc-frames/1086-02.png", "assets/town-npc-frames/1086-03.png"], "durations": [100, 100, 100, 100]}, "1087": {"files": ["assets/town-npc-frames/1087-00.png", "assets/town-npc-frames/1087-01.png", "assets/town-npc-frames/1087-02.png", "assets/town-npc-frames/1087-03.png", "assets/town-npc-frames/1087-04.png", "assets/town-npc-frames/1087-05.png", "assets/town-npc-frames/1087-06.png", "assets/town-npc-frames/1087-07.png", "assets/town-npc-frames/1087-08.png", "assets/town-npc-frames/1087-09.png"], "durations": [70, 70, 70, 70, 70, 70, 70, 70, 70, 70]}};
+for(const n of NPCS){const data=npcFrameManifest[n.id];npcFrames[n.id]={images:data.files.map(file=>{const pic=new Image();pic.src=file;return pic}),durations:data.durations,total:data.durations.reduce((a,b)=>a+b,0)}}
+function animatedNpcImage(id,now){const anim=npcFrames[id];if(!anim)return null;let ms=(now+(id%11)*75)%anim.total;for(let i=0;i<anim.images.length;i++){ms-=anim.durations[i];if(ms<0)return anim.images[i]}return anim.images[0]}
+
+// Hero frames come from the SAME Walk/WalkLeft/WalkRight APNG used in Monster Hunt.
+const heroFrameManifest={"Idle":{"files":["assets/town-hero-frames/Idle-00.png"],"durations":[100]},"Walk":{"files":["assets/town-hero-frames/Walk-00.png","assets/town-hero-frames/Walk-01.png","assets/town-hero-frames/Walk-02.png","assets/town-hero-frames/Walk-03.png","assets/town-hero-frames/Walk-04.png","assets/town-hero-frames/Walk-05.png","assets/town-hero-frames/Walk-06.png","assets/town-hero-frames/Walk-07.png"],"durations":[100,100,100,100,100,100,100,100]},"WalkLeft":{"files":["assets/town-hero-frames/WalkLeft-00.png","assets/town-hero-frames/WalkLeft-01.png","assets/town-hero-frames/WalkLeft-02.png","assets/town-hero-frames/WalkLeft-03.png","assets/town-hero-frames/WalkLeft-04.png","assets/town-hero-frames/WalkLeft-05.png","assets/town-hero-frames/WalkLeft-06.png","assets/town-hero-frames/WalkLeft-07.png"],"durations":[100,100,100,100,100,100,100,100]},"WalkRight":{"files":["assets/town-hero-frames/WalkRight-00.png","assets/town-hero-frames/WalkRight-01.png","assets/town-hero-frames/WalkRight-02.png","assets/town-hero-frames/WalkRight-03.png","assets/town-hero-frames/WalkRight-04.png","assets/town-hero-frames/WalkRight-05.png","assets/town-hero-frames/WalkRight-06.png","assets/town-hero-frames/WalkRight-07.png"],"durations":[100,100,100,100,100,100,100,100]}};
+const heroFrameSets={};
+for(const [key,info] of Object.entries(heroFrameManifest)){heroFrameSets[key]={images:info.files.map(file=>{const im=new Image();im.src=file;return im}),durations:info.durations,total:info.durations.reduce((a,b)=>a+b,0)}}
+function heroFrame(key,time){const anim=heroFrameSets[key];if(!anim)return null;let ms=time%anim.total;for(let i=0;i<anim.images.length;i++){ms-=anim.durations[i];if(ms<0){const im=anim.images[i];return im.complete&&im.naturalWidth?im:anim.images.find(x=>x.complete&&x.naturalWidth)}}return anim.images[0]}
+function movingHero(){return actor.path.length>0 || actor.walkDx!==0 || actor.walkDy!==0}
+// Keep the player's last previewed costume visible when returning from the costume NPC.
+let costumeSignature='',costumeIdle=null,costumeWalk=null;
+function refreshTownCostume(){
+ let saved;try{saved=localStorage.getItem('sukhambriya:costumePreview')||'';}catch(_){return}
+ if(saved===costumeSignature)return;costumeSignature=saved;costumeIdle=null;costumeWalk=null;
+ try{const c=JSON.parse(saved),v=c.views||{};if(!Object.values(v).some(Number))return;
+ const base={job:'4013',head:String(c.head??8),headPalette:String(c.headPalette??1),bodyPalette:String(c.bodyPalette??-1),upper:String(v.upper||0),middle:String(v.middle||0),lower:String(v.lower||0),garment:String(v.garment||0)};
+ const make=action=>{const im=new Image(),q=new URLSearchParams({...base,action:String(action)});im.src='/api/costume-image?'+q;return im};
+ costumeIdle=make(0);costumeWalk=make(8);
+ }catch(e){console.warn('Town costume not available',e)}
+}
+const status=document.getElementById('status');const dialog=document.getElementById('dialog');
+function iso(x,y){return {x:(x-y)*TW/2,y:(x+y)*TH/2}}
+function worldToScreen(x,y){let p=iso(x,y);return {x:(p.x-camera.x)*zoom+W/2,y:(p.y-camera.y)*zoom+H/2}}
+function screenToTile(sx,sy){const px=(sx-W/2)/zoom+camera.x,py=(sy-H/2)/zoom+camera.y;return {x:py/TH+px/TW,y:py/TH-px/TW}}
+function resize(){dpr=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(dpr,0,0,dpr,0,0)}addEventListener('resize',resize);resize();
+function poly(points,fill,stroke,line=1){ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.closePath();ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=line;ctx.stroke()}}
+function line(a,b,color,width=1){ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()}
+function ell(x,y,rx,ry,fill){ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fillStyle=fill;ctx.fill()}
+function diamond(x,y,w,h,fill,stroke){poly([[x,y-h/2],[x+w/2,y],[x,y+h/2],[x-w/2,y]],fill,stroke)}
+function tile(x,y){const t=tiles[y][x];let p=iso(x+.5,y+.5);const R=random(x,y);let shade=t.type==='grass'?(R>.68?'#63804b':R>.32?'#6d8755':'#59764d'):t.type==='plaza'?(R>.65?'#bcb5a1':R>.30?'#cbc1ac':'#d8cab3'):(R>.5?'#a6a28e':'#b8af99');diamond(p.x,p.y,TW+1,TH+1,shade,t.type==='grass'?'#536e4538':'#796f6250');if(t.type==='grass'){for(let i=0;i<4;i++){let dx=(random(x,y,i+2)-.5)*TW*.7,dy=(random(x,y,i+8)-.5)*TH*.7;line([p.x+dx,p.y+dy],[p.x+dx+1,p.y+dy-3],i%2?'#8ea96a70':'#344f3a70',.8)}}else{let dy=(R-.5)*3;line([p.x-TW*.29,p.y+dy],[p.x+TW*.25,p.y+dy-5],'#756f6450',.9);if(R>.4)line([p.x+10,p.y-TH*.24],[p.x+9,p.y+TH*.25],'#6c66574d',.8);if(R>.8)ell(p.x-12,p.y+5,2.2,.8,'#eeead647')}}
+function solidShadow(x,y,rx,ry){ell(x,y,rx,ry,'#10100f49');ell(x,y,rx*.78,ry*.7,'#20221b33')}
+function roofHouse(o,castle=false){let p=iso(o.x+o.w/2,o.y+o.h/2),w=o.w*TW*.52,h=o.h*TH*.57;ctx.save();ctx.translate(p.x,p.y);solidShadow(12,11,w*.95,h*.7);
+poly([[-w,-15],[0,h*.62-15],[0,h*.62-85],[-w,-85]],castle?'#8b9188':'#947762','#473e35',2);
+poly([[0,h*.62-15],[w,-15],[w,-85],[0,h*.62-85]],castle?'#a8afa4':'#bc9270','#493c35',2);
+for(let side of [-1,1])for(let n=0;n<3;n++){let xx=side*(w*.27+n*w*.21), yy=-36+(side===1?-n*5:n*5);ctx.fillStyle='#222a30';ctx.fillRect(xx-7,yy-22,14,19);ctx.fillStyle='#c49b61';ctx.fillRect(xx-5,yy-20,10,15);line([xx,yy-20],[xx,yy-5],'#5e4b3b',2)}
+poly([[-w-12,-83],[0,h*.62-106],[0,h*.62-150],[-w*.92,-130]],castle?'#344d70':'#804638','#282c35',2);
+poly([[0,h*.62-106],[w+12,-83],[w*.92,-130],[0,h*.62-150]],castle?'#597b9d':'#b96b46','#392c2b',2);
+for(let i=0;i<7;i++){let k=i/7;line([-w-9+k*w,-84+k*h*.62],[-w*.92+k*w,-130+k*h*.62],castle?'#9fb4c47c':'#dea37a66',1.2)}
+poly([[w*.19,-52],[w*.43,-63],[w*.43,-12],[w*.19,-1]],'#473024','#d2a166',2);ell(w*.31,-39,3,3,'#edc37e');
+if(castle){for(let i=0;i<5;i++){let xx=-w+17+i*w*.34;ctx.fillStyle='#abb6b2';ctx.fillRect(xx,-118,13,23);ctx.fillStyle='#293b50';ctx.fillRect(xx+3,-115,7,13)}}
+for(let i=0;i<10;i++){let xx=-w*.8+i*w*.17;ell(xx,15+Math.sin(i*3)*5,3.5,2.4,i%3?'#d2bd91':'#6c8d58')}
+ctx.restore()}
+function stall(o){const p=iso(o.x+o.w/2,o.y+o.h/2);ctx.save();ctx.translate(p.x,p.y);let w=87;solidShadow(0,10,70,20);poly([[-w,-65],[0,-92],[w,-65],[0,-35]],'#e3c7a3','#583e31',2);for(let i=-3;i<=3;i++){let c=i%2?'#e6d3a8':'#9b463b';poly([[i*24-13,-67-Math.abs(i)*2],[i*24+8,-72-Math.abs(i)*2],[i*24+18,-50-Math.abs(i)*2],[i*24-3,-47-Math.abs(i)*2]],c,'#7f6144',.6)}line([-61,-47],[-61,9],'#664631',3);line([58,-50],[58,8],'#664631',3);poly([[-54,-8],[10,17],[71,-9],[7,-30]],'#71543b','#b18d5d');for(let i=0;i<14;i++){let a=random(i,o.x);ell((a-.5)*105,(random(i,o.y)-.5)*27-7,3.5,3.1,['#e6bf59','#ad5138','#6f9652','#d9bb8b'][i%4])}ctx.restore()}
+function fountain(o){const p=iso(o.x+o.w/2,o.y+o.h/2);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,18,112,49);for(let j=0;j<3;j++){ell(0,-1-j*4,102-j*3,49-j*2,['#8a8d84','#d9d0bd','#8c9999'][j])}ell(0,-12,85,37,'#346f8c');ell(0,-16,80,32,'#4f9bb5');for(let i=0;i<9;i++){let a=i*Math.PI*2/9;ell(Math.cos(a)*72,Math.sin(a)*30-14,4,1.5,'#e3f5f6a9')}
+poly([[-19,-20],[19,-20],[15,-82],[-15,-82]],'#b5b6ab','#555f60',2);ell(0,-84,25,12,'#d1d7ce');poly([[-10,-90],[8,-90],[4,-135],[-5,-135]],'#c8c7b8','#5d6463');ell(0,-139,9,10,'#e4d8be');for(let i=0;i<6;i++){let a=i*Math.PI/3+tick*.0003;let sx=Math.cos(a)*28,sy=-88+Math.sin(a)*8;line([sx,sy],[sx*.9,-25+Math.sin(a)*15],'#bbecf3a0',1.9)}ctx.restore()}
+function tree(x,y,k){const p=iso(x,y);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,1,35,15);line([0,0],[0,-77],'#57412d',8);for(let j=0;j<9;j++){let a=j*2.4,kx=Math.sin(a)*19,ky=-76+Math.cos(a)*13-(j%3)*16;ell(kx+3,ky+6,21,14,'#1c3528bb');ell(kx,ky,21,14,[ '#496942','#60844a','#476f4a','#74945c'][j%4]);ell(kx-7,ky-5,7,4,'#94a76d44')}ctx.restore()}
+const trees=[];for(let x=3;x<41;x+=4)for(let y=3;y<41;y+=5)if((x<9||x>35||y<9||y>35)&&random(x,y)>.18)trees.push({x,y,type:'tree'});
+const decor=[...trees,...Array.from({length:24},(_,i)=>({type:'lamp',x:9+(i%6)*5.2,y:8+Math.floor(i/6)*9.1})).filter(o=>tiles[Math.round(o.y)]?.[Math.round(o.x)]?.walk)];
+function lamp(o){const p=iso(o.x,o.y);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,1,8,5);line([0,0],[0,-57],'#343e40',3);poly([[-7,-59],[0,-66],[7,-59],[5,-44],[-5,-44]],'#d7ae60','#2d3e45',1.5);poly([[-4,-58],[0,-61],[4,-58],[3,-48],[-3,-48]],'#f5d88a');ctx.restore()}
+function label(text,x,y,sub){ctx.textAlign='center';ctx.font='bold 11px Tahoma';ctx.lineWidth=3;ctx.strokeStyle='#19252beb';ctx.strokeText(text,x,y);ctx.fillStyle='#ffebbb';ctx.fillText(text,x,y);if(sub){ctx.font='10px Tahoma';ctx.strokeText(sub,x,y+15);ctx.fillStyle='#f1f4e4';ctx.fillText(sub,x,y+15)}}
+function npc(o){const p=iso(o.x+.5,o.y+.5);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,2,20,7);const a=animatedNpcImage(o.id,tick);const breathe=1+Math.sin(tick*.003+o.id)*.025;const floatY=Math.sin(tick*.0025+o.id)*2.1;if(a?.complete&&a.naturalWidth){let h=93*(o.id===1039?1.22:1),w=Math.min(110,h*a.naturalWidth/a.naturalHeight);ctx.drawImage(a,-w/2,-h-9+floatY,w,h*breathe)}else{ell(0,-35,15,34,o.color)}label(o.name,0,-116,o.role);ctx.restore()}
+function player(){const p=iso(actor.x+.5,actor.y+.5);ctx.save();ctx.translate(p.x,p.y);solidShadow(0,2,17,6);refreshTownCostume();
+ const walking=movingHero();const key=walking?(actor.walkDx<-.15?'WalkLeft':actor.walkDx>.15?'WalkRight':'Walk'):'Idle';
+ const fallback=heroFrame(key,actor.walkTime);const custom=walking?costumeWalk:costumeIdle;
+ // Costume service still returns a single image; use locally animated Assassin as reliable fallback.
+ const a=(walking&&fallback?.complete&&fallback.naturalWidth)?fallback:((custom?.complete&&custom.naturalWidth)?custom:fallback);
+ if(a?.complete&&a.naturalWidth){const bob=walking?Math.sin(actor.walkTime/85)*1.2:0;ctx.drawImage(a,-57,-111+bob,114,114)}else{poly([[-12,-10],[12,-10],[10,-68],[-10,-68]],'#5b6778')}
+ label('นักผจญภัย',0,18);if(actor.bubble&&tick<actor.bubbleUntil){ctx.font='bold 12px Tahoma';let w=Math.min(245,Math.max(70,ctx.measureText(actor.bubble).width+20));ctx.fillStyle='#fffaeb';ctx.strokeStyle='#9c7b48';ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(-w/2,-144,w,31,7);ctx.fill();ctx.stroke();ctx.fillStyle='#28353c';ctx.textAlign='center';ctx.fillText(actor.bubble.slice(0,37),0,-124)}ctx.restore()}
+
+function draw(){tick=performance.now();const c=iso(actor.x,actor.y);camera.x+=(c.x-camera.x)*.08;camera.y+=(c.y-camera.y+55/zoom)*.08;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);ctx.fillStyle='#1b3131';ctx.fillRect(0,0,W,H);ctx.save();ctx.translate(W/2-camera.x*zoom,H/2-camera.y*zoom);ctx.scale(zoom,zoom);
+for(let sum=0;sum<(SIZE-1)*2+1;sum++)for(let y=Math.max(0,sum-SIZE+1);y<=Math.min(SIZE-1,sum);y++){let x=sum-y;tile(x,y)}
+// Decorative world structures sorted against the avatar for proper overlapping.
+const entities=[...structures,...decor,...NPCS.map(o=>({...o,type:'npc'})),{type:'player',x:actor.x,y:actor.y}].sort((a,b)=>(a.x+a.y+(a.h||0)*.22)-(b.x+b.y+(b.h||0)*.22));for(let o of entities){if(o.type==='building')paintedBuilding(o);else if(o.type==='fountain')fountain(o);else if(o.type==='tree')tree(o.x,o.y);else if(o.type==='lamp')lamp(o);else if(o.type==='npc')npc(o);else if(o.type==='player')player()}
+ctx.restore();requestAnimationFrame(draw)}
+const dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+function inside(x,y){return x>=0&&y>=0&&x<SIZE&&y<SIZE&&tiles[y][x].walk}
+function astar(sx,sy,tx,ty){sx=Math.round(sx);sy=Math.round(sy);tx=Math.round(tx);ty=Math.round(ty);if(!inside(tx,ty))return [];let open=[{x:sx,y:sy,g:0,f:0}],came=new Map(),score=new Map([[`${sx},${sy}`,0]]),closed=new Set();while(open.length){open.sort((a,b)=>a.f-b.f);let cur=open.shift(),k=`${cur.x},${cur.y}`;if(closed.has(k))continue;if(cur.x===tx&&cur.y===ty){let result=[];while(came.has(k)){const [x,y]=k.split(',').map(Number);result.push({x,y});k=came.get(k)}return result.reverse()}closed.add(k);for(const [dx,dy] of dirs){let nx=cur.x+dx,ny=cur.y+dy,key=`${nx},${ny}`;if(!inside(nx,ny)||closed.has(key))continue;if(dx&&dy&&(!inside(cur.x+dx,cur.y)||!inside(cur.x,cur.y+dy)))continue;const g=cur.g+(dx&&dy?1.414:1);if(g>=(score.get(key)??Infinity))continue;came.set(key,k);score.set(key,g);open.push({x:nx,y:ny,g,f:g+Math.hypot(tx-nx,ty-ny)})}}return []}
+let last=performance.now();function move(now){let dt=Math.min(.07,(now-last)/1000);last=now;
+ if(actor.path.length){const target=actor.path[0],dx=target.x-actor.x,dy=target.y-actor.y,d=Math.hypot(dx,dy);
+ if(d<.09){actor.x=target.x;actor.y=target.y;actor.path.shift();if(!actor.path.length&&actor.targetNpc){showNpc(actor.targetNpc);actor.targetNpc=null}}
+ else{let step=Math.min(d,dt*2.9);actor.x+=dx/d*step;actor.y+=dy/d*step;actor.dir=dx>0?1:-1;actor.walkDx=dx/d;actor.walkDy=dy/d;actor.walkTime+=dt*1000}
+ }else{actor.walkDx=0;actor.walkDy=0;actor.walkTime=0}
+ requestAnimationFrame(move)}
+function nearestWalk(x,y){let best=null,D=1e9;for(let i=0;i<SIZE;i++)for(let j=0;j<SIZE;j++)if(inside(i,j)){let d=Math.hypot(i-x,j-y);if(d<D){D=d;best={x:i,y:j}}}return best}
+function approachNpc(n){let near=null,best=Infinity;for(let dx=-3;dx<=3;dx++)for(let dy=-3;dy<=3;dy++){const x=Math.round(n.x)+dx,y=Math.round(n.y)+dy,d=Math.hypot(x-n.x,y-n.y);if(d>2.6||d<1.1||!inside(x,y))continue;const r=astar(actor.x,actor.y,x,y);if(r.length&&r.length<best){best=r.length;near=r}}if(near){actor.path=near;actor.targetNpc=n;status.textContent=`กำลังเดินไปหา ${n.name} · ${n.role}`;if(!near.length)showNpc(n)}else showNpc(n)}
+canvas.addEventListener('pointerdown',e=>{if(dialog.classList.contains('show'))return;const rc=canvas.getBoundingClientRect(),pos=screenToTile((e.clientX-rc.left)*W/rc.width,(e.clientY-rc.top)*H/rc.height);let n=NPCS.find(n=>Math.hypot(n.x+.5-pos.x,n.y+.5-pos.y)<1.45);if(n){approachNpc(n);return}let x=Math.round(pos.x-.5),y=Math.round(pos.y-.5);if(!inside(x,y)){status.textContent='พื้นที่นี้มีสิ่งกีดขวาง · เลือกพื้นหินที่เดินได้';return}actor.targetNpc=null;actor.path=astar(actor.x,actor.y,x,y);status.textContent=`เดินไปตำแหน่ง (${x}, ${y})`});
+let currentNpc=null;function showNpc(n){currentNpc=n;document.getElementById('dlgTitle').textContent=n.name+' · '+n.role;document.getElementById('dlgText').textContent=n.desc;document.getElementById('npcAction').textContent={'refine':'⚒ เปิดตีบวก','costume':'🎭 เปิดแต่งตัว','obb':'🎁 เปิด Old Blue Box','hunt':'⚔ ไป Monster Hunt'}[n.mode];dialog.classList.add('show')}
+document.getElementById('closeDialog').onclick=()=>dialog.classList.remove('show');document.getElementById('npcAction').onclick=()=>{if(currentNpc){sessionStorage.setItem('sukhambriyaTownNpc',currentNpc.mode);location.href='index.html?townNPC='+currentNpc.mode}};document.getElementById('mainGame').onclick=()=>location.href='index.html';
+document.getElementById('zoomIn').onclick=()=>zoom=Math.min(1.7,zoom+.14);document.getElementById('zoomOut').onclick=()=>zoom=Math.max(.68,zoom-.14);
+function chat(){let el=document.getElementById('chatInput'),text=el.value.trim();if(!text)return;el.value='';actor.bubble=text;actor.bubbleUntil=performance.now()+5200;let row=document.createElement('div');let b=document.createElement('b');b.textContent='คุณ: ';row.append(b,document.createTextNode(text));const log=document.getElementById('chatlog');log.append(row);log.scrollTop=log.scrollHeight}document.getElementById('chatSend').onclick=chat;document.getElementById('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();chat()}});
+const mini=document.getElementById('mini'),mc=mini.getContext('2d');function minimap(){mc.clearRect(0,0,155,155);mc.fillStyle='#334b3e';mc.fillRect(0,0,155,155);for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){mc.fillStyle=tiles[y][x].type==='grass'?'#59784f':'#b2a78c';mc.fillRect(x*3.5,y*3.5,3.6,3.6)}for(const o of structures){mc.fillStyle=o.type==='fountain'?'#5daabe':'#634b3a';mc.fillRect(o.x*3.5,o.y*3.5,o.w*3.5,o.h*3.5)}for(const n of NPCS){mc.fillStyle='#ffce76';mc.fillRect(n.x*3.5,n.y*3.5,4,4)}mc.fillStyle='#f3f6ff';mc.beginPath();mc.arc(actor.x*3.5,actor.y*3.5,3,0,7);mc.fill();requestAnimationFrame(minimap)}
+// Export a real data representation so the world is editable tile-by-tile.
+window.SukhambriyaTown={tiles,structures,npcs:NPCS,actor};requestAnimationFrame(draw);requestAnimationFrame(move);requestAnimationFrame(minimap);
