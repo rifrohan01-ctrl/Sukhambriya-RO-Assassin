@@ -45,7 +45,7 @@ const server=http.createServer((req,res)=>{
       res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=300'});res.end(b);
     })().catch(e=>{console.error('COSTUME IMAGE ERROR',e.message);res.writeHead(502,{'Content-Type':'text/plain'});res.end('Costume image unavailable');});return;
   }
-  const safe=pathname==='/'?'/index.html':pathname;
+  const safe=pathname==='/'?'/town.html':pathname;
   const target=path.normalize(path.join(PUBLIC,safe));
   if(target!==PUBLIC&&!target.startsWith(PUBLIC+path.sep)){res.writeHead(403);return res.end('Forbidden')}
   fs.readFile(target,(err,body)=>{
