@@ -11,6 +11,7 @@
  catch(e){show('accountGateway',true);setGameAccess(false);message(e.message,true);return;}
  if(!window.supabase?.createClient){show('accountGateway',true);setGameAccess(false);message('ไม่สามารถโหลด Supabase SDK ได้ กรุณาตรวจอินเทอร์เน็ตแล้วโหลดหน้าเว็บใหม่',true);return;}
  const sb=window.supabase.createClient(config.supabaseUrl,config.supabasePublishableKey,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:true}});
+ window.SUKHAMBRIYA_SUPABASE=sb;
  let activeUser=null, busy=false;
  const lock=()=>{window.SUKHAMBRIYA_ACCESS_TOKEN=null;activeUser=null;setGameAccess(false);show('accountGateway',true);show('accountAuth',true);show('accountCreator',false);show('accountStatus',false)};
  async function loadCharacter(user){
@@ -22,6 +23,7 @@
    $('accountPlayerName').textContent=n;
    const nick=$('nickname');if(nick)nick.value=n;
    window.SUKHAMBRIYA_CHARACTER=data;
+   window.dispatchEvent(new CustomEvent('sukhambriya:character-ready',{detail:data}));
    const {data:sessionData}=await sb.auth.getSession();window.SUKHAMBRIYA_ACCESS_TOKEN=sessionData?.session?.access_token||null;
    show('accountGateway',false);show('accountStatus',true);setGameAccess(true);
    try{if(typeof window.SUKHAMBRIYA_ACCOUNT_READY==='function')window.SUKHAMBRIYA_ACCOUNT_READY(data)}catch(e){console.warn(e)}
