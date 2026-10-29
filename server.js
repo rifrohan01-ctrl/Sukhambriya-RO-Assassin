@@ -10,6 +10,41 @@ const MIME={'.apng':'image/png','.html':'text/html; charset=utf-8','.png':'image
 const server=http.createServer((req,res)=>{
   const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
   if(pathname==='/api/public-config'){res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});return res.end(JSON.stringify({supabaseUrl:process.env.SUPABASE_URL||'',supabasePublishableKey:process.env.SUPABASE_PUBLISHABLE_KEY||''}));}
+  // Fixed-upstream proxy; never accepts arbitrary hostnames. External catalogue is fetched on demand.
+  if(pathname==='/api/real-costumes'){
+    (async()=>{
+      const source=await fetch('https://assets.latam-tools.com.br/raw/items_en.json',{signal:AbortSignal.timeout(16000)});
+      if(!source.ok)throw Error('Costume catalogue upstream '+source.status);
+      const rows=await source.json();
+      if(!Array.isArray(rows))throw Error('Unexpected catalogue format');
+      const filtered=rows.filter(x=>x&&Number.isInteger(x.id)&&Number.isInteger(x.spriteView)&&x.spriteView>0&&!x.spriteBlank&&['headgear','garment'].includes(x.viewKind)&&typeof x.name==='string').map(x=>({id:x.id,name:x.name,view:x.spriteView,kind:x.viewKind,slots:x.equipSlots||[],costume:!!x.costume}));
+      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'public, max-age=1200'});
+      res.end(JSON.stringify({items:filtered,count:filtered.length,source:'ragassets items_en.json'}));
+    })().catch(e=>{console.error('COSTUME CATALOG ERROR',e.message);res.writeHead(502,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Catalogue temporarily unavailable',detail:e.message}));});return;
+  }
+  if(pathname==='/api/costume-image'||pathname==='/api/costume-icon'){
+    (async()=>{
+      const q=new URL(req.url,'http://localhost').searchParams;
+      let upstream;
+      if(pathname==='/api/costume-icon'){
+        const id=Number(q.get('id'));
+        if(!Number.isInteger(id)||id<1||id>9999999)throw Error('Invalid item id');
+        upstream='https://assets.latam-tools.com.br/icons/item/'+id+'.png';
+      }else{
+        const itemId=Number(q.get('itemId')||0),job=4013;
+        const action=Number(q.get('action')||0),head=Number(q.get('head')||8),headPalette=Number(q.get('headPalette')||1),bodyPalette=Number(q.get('bodyPalette')??-1);
+        const upper=Number(q.get('upper')||0),middle=Number(q.get('middle')||0),lower=Number(q.get('lower')||0),garment=Number(q.get('garment')||0);
+        if(![action,head,headPalette,bodyPalette,upper,middle,lower,garment].every(Number.isInteger)||action<0||action>103||head<0||head>50||[upper,middle,lower,garment].some(v=>v<0||v>100000))throw Error('Invalid sprite parameters');
+        const params=new URLSearchParams({job:String(job),action:String(action),gender:'1',head:String(head),headPalette:String(headPalette),bodyPalette:String(bodyPalette),headgear:[upper,middle,lower].join(','),garment:String(garment),canvas:'200x200+100+150',headdir:'straight'});
+        upstream='https://assets.latam-tools.com.br/image?'+params;
+      }
+      const r=await fetch(upstream,{signal:AbortSignal.timeout(16000)});
+      if(!r.ok)throw Error('Sprite upstream HTTP '+r.status);
+      if(!(r.headers.get('content-type')||'').includes('image/'))throw Error('Upstream did not return an image');
+      const b=Buffer.from(await r.arrayBuffer());if(b.length>2000000)throw Error('Sprite too large');
+      res.writeHead(200,{'Content-Type':'image/png','Cache-Control':'public, max-age=300'});res.end(b);
+    })().catch(e=>{console.error('COSTUME IMAGE ERROR',e.message);res.writeHead(502,{'Content-Type':'text/plain'});res.end('Costume image unavailable');});return;
+  }
   const safe=pathname==='/'?'/index.html':pathname;
   const target=path.normalize(path.join(PUBLIC,safe));
   if(target!==PUBLIC&&!target.startsWith(PUBLIC+path.sep)){res.writeHead(403);return res.end('Forbidden')}
