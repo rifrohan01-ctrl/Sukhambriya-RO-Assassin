@@ -6,7 +6,25 @@ let catalog=[], selection={upper:null,middle:null,lower:null,garment:null}, row=
 const source=$('costumeSourceStatus'),state=$('customizeStatus'),preview=$('customizeSprite');
 const status=(message,error=false)=>{state.textContent=message;state.style.color=error?'#ffb6b6':'#b6edc6'};
 const byId=id=>catalog.find(x=>x.id===Number(id));
-function slotFor(item){if(item.kind==='garment')return 'garment';const z=JSON.stringify(item.slots||[]).toLowerCase();if(z.includes('lower'))return 'lower';if(z.includes('middle'))return 'middle';return 'upper'}
+
+function slotFor(item) {
+  if (item.kind === 'garment') return 'garment';
+
+  const slots = (item.slots || []).map(
+    s => String(s).toLowerCase()
+  );
+
+  if (slots.includes('low') || slots.includes('lower')) {
+    return 'lower';
+  }
+
+  if (slots.includes('mid') || slots.includes('middle')) {
+    return 'middle';
+  }
+
+  return 'upper';
+}
+  
 function spriteUrl(a=0){const q=new URLSearchParams({action:String(a),head:String(row?.hair_style??8),headPalette:String(row?.hair_color??1),bodyPalette:String(row?.appearance?.bodyColor??-1)});for(const s of slots)q.set(s,String(byId(selection[s])?.view||0));return '/api/costume-image?'+q.toString()}
 const lastGood='assets/assassin/Idle.png';
 function setSprite(el,a){const url=spriteUrl(a);el.onerror=()=>{el.onerror=null;el.src=lastGood;source.textContent='ภาพเรนเดอร์ต้นทางไม่พร้อมใช้งาน · แสดงภาพเดิมแทน';};el.onload=()=>{};el.src=url;}
