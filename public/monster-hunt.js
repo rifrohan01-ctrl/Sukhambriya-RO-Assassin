@@ -29,9 +29,29 @@ function setHeroAnimation(action,force=false){
  const key=action==='Attack'?heroAttackDirection:(action==='Walk'?heroWalkDirection:action);
  if(!heroImg||(!force&&heroAnimation===action&&heroImg.dataset.spriteKey===key))return;
  heroAnimation=action;heroImg.dataset.spriteKey=key;
- heroImg.src=HERO_DIR+key+'.png'+(force?'?s='+Math.floor(performance.now()):'');
+ // One source of truth for dressed Assassin sprites; use the classic PNG if unavailable.
+ const classic=HERO_DIR+key+'.png';
+ const costume=typeof window.RO_COSTUME_SPRITE==='function'?window.RO_COSTUME_SPRITE(key):null;
+ const url=costume||classic;
+ if(heroImg.dataset.assetUrl!==url){
+   heroImg.dataset.assetUrl=url;
+   heroImg.onerror=()=>{
+     heroImg.onerror=null;
+     // Keep the game playable if the remote character renderer is unavailable.
+     heroImg.dataset.assetUrl=classic;
+     heroImg.src=classic;
+   };
+   heroImg.src=url;
+ }else if(force && costume && action==='Attack'){
+   // Replay cached APNG on each swing without generating a unique upstream render URL.
+   const fresh=heroImg.cloneNode(false);
+   fresh.src=url;heroImg.replaceWith(fresh);heroImg=fresh;
+ }else if(force && !costume){
+   heroImg.src=classic+'?s='+Math.floor(performance.now());
+ }
  hero.classList.toggle('attacking',action==='Attack');
 }
+window.RO_HUNT_REFRESH_COSTUME=()=>{if(heroImg)setHeroAnimation(heroAnimation||'Idle',true)};
 function updateFacing(dx,dy){
  // Available source animations: front idle/walk and four attack directions.
  // Never mirror attack APNGs: each direction has its own true frames.
